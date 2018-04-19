@@ -45,7 +45,7 @@
     state: directory
     mode: 0755
   with_items: "{{ openio_gridinit_services | map(attribute='namespace') | list }}"
-  when: openio_gridinit_per_ns | bool
+  when: not openio_gridinit_flat_mode
   tags: install
 
 - name: Add gridinit global configuration file
@@ -55,28 +55,57 @@
   tags: configure
   notify: reload gridinit
 
-- name: Add gridinit per-service configuration file
+# FLAT_MODE
+- name: "(Flat) Add gridinit per-service configuration file"
   template:
     src: gridinit-service.j2
-    dest: "{{ openio_gridinit_conf_confd + '/' + item.namespace + '/' + item.name + '.conf' if openio_gridinit_per_ns else openio_gridinit_conf_confd + '/' + item.namespace + '-' + item.name + '.conf' }}"
+    dest: "{{ openio_gridinit_conf_confd }}/{{ item.namespace }}-{{ item.name }}.conf"
   with_items: "{{ openio_gridinit_services }}"
-  when: (item.state | default('present')) == 'present'
+  when: openio_gridinit_flat_mode and (item.state | default('present')) == 'present'
   tags: configure
   notify: reload gridinit
 
-- name: Remove gridinit per-service configuration file
+- name: "(Flat) Remove gridinit per-service configuration file"
   file:
-    path: "{{ openio_gridinit_conf_confd + '/' + item.namespace + '/' + item.name + '.conf' if openio_gridinit_per_ns else openio_gridinit_conf_confd + '/' + item.namespace + '-' + item.name + '.conf' }}"
+    path: "{{ openio_gridinit_conf_confd }}/{{ item.namespace }}-{{ item.name }}.conf"
+    state: absent
+  with_items: "{{ openio_gridinit_services }}"
+  when: openio_gridinit_flat_mode and (item.state | default('present')) == 'absent'
+  tags: configure
+  notify: reload gridinit
+
+# NESTED_MODE
+- name: "(Nested) Ensure sub-directory for namespace exists"
+  file:
+    path: "{{ openio_gridinit_conf_confd }}/{{ item }}"
+    state: directory
+    mode: 0755
+  with_items: "{{ openio_gridinit_services | map(attribute='namespace') | list }}"
+  tags: install
+  when: not openio_gridinit_flat_mode
+
+- name: "(Nested) Add gridinit per-service configuration file"
+  template:
+    src: gridinit-service.j2
+    dest: "{{ openio_gridinit_conf_confd + '/' + item.namespace + '/' + item.name + '.conf'}}"
+  with_items: "{{ openio_gridinit_services }}"
+  when: not openio_gridinit_flat_mode and (item.state | default('present')) == 'present'
+  tags: configure
+  notify: reload gridinit
+
+- name: "(Nested) Remove gridinit per-service configuration file"
+  file:
+    path: "{{ openio_gridinit_conf_confd + '/' + item.namespace + '/' + item.name + '.conf'}}"
     state: absent
   with_items: "{{ openio_gridinit_services }}"
   when: (item.state | default('present')) == 'absent'
   tags: configure
   notify: reload gridinit
+  when: not openio_gridinit_flat_mode
 
 - name: Ensure service is started
   service:
     name: "{{ openio_gridinit_service_name }}"
     state: started
   tags: configure
-
 ...
